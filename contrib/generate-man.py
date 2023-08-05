@@ -13,18 +13,13 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 
 def _is_md_title(line: str) -> bool:
-    if not line:
-        return False
-    for char in line:
-        if char not in ["#", "-", "="]:
-            return False
-    return True
+    return False if not line else all(char in ["#", "-", "="] for char in line)
 
 
 def _replace_bookend(line: str, search: str, replace_l: str, replace_r: str) -> str:
 
     try:
-        while line.find(search) != -1:
+        while search in line:
             it = iter(line.split(search, maxsplit=2))
             line_tmp: str = ""
             for token_before in it:
@@ -52,17 +47,14 @@ def _convert_md_to_man(data: str) -> str:
     split = sections[0].split(" ", maxsplit=4)
     if split[0] != "%" or split[3] != "|":
         print(
-            "no man header detected, expected something like "
-            "'% fwupdagent(1) 1.2.5 | fwupdagent man page' and got {}".format(
-                sections[0]
-            )
+            f"no man header detected, expected something like '% fwupdagent(1) 1.2.5 | fwupdagent man page' and got {sections[0]}"
         )
         sys.exit(1)
     man_cmd = split[1][:-3]
     man_sect = int(split[1][-2:-1])
-    troff_lines.append(f'.TH "{man_cmd}" "{man_sect}" "" {split[2]} "{split[4]}"')
-    troff_lines.append(".hy")  # hyphenate
-
+    troff_lines.extend(
+        (f'.TH "{man_cmd}" "{man_sect}" "" {split[2]} "{split[4]}"', ".hy")
+    )
     # content
     for section in sections[1:]:
         lines = section.split("\n")
@@ -100,8 +92,7 @@ def _convert_md_to_man(data: str) -> str:
         # add troff
         if sectalign != 4:
             troff_lines.append(f".RS {sectalign}")
-        troff_lines.append(sectkind)
-        troff_lines.append(line)
+        troff_lines.extend((sectkind, line))
         if sectalign != 4:
             troff_lines.append(".RE")
 
@@ -118,8 +109,7 @@ def _add_defines(defines: Dict[str, str], fn: str) -> None:
                 continue
             sections: List[str] = []
             for section in line[7:].split(" "):
-                section = section.strip()
-                if section:
+                if section := section.strip():
                     if section == "TRUE":
                         section = "true"
                     if section == "FALSE":

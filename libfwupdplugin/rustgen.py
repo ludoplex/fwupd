@@ -74,7 +74,7 @@ class EnumObj:
         return f"Fu{self.name}"
 
     def export(self, derive: str) -> Export:
-        if derive in ["FromString", "ToString"]:
+        if derive in {"FromString", "ToString"}:
             if derive in self.derives:
                 return Export.PUBLIC
         return self._exports.get(derive, Export.NONE)
@@ -114,20 +114,15 @@ class StructObj:
 
     @property
     def size(self) -> int:
-        size: int = 0
-        for item in self.items:
-            size += item.size
+        size: int = sum(item.size for item in self.items)
         return size
 
     @property
     def has_constant(self) -> bool:
-        for item in self.items:
-            if item.constant:
-                return True
-        return False
+        return any(item.constant for item in self.items)
 
     def export(self, derive: str) -> Export:
-        if derive in ["New", "Parse", "Validate", "ToString"]:
+        if derive in {"New", "Parse", "Validate", "ToString"}:
             if derive in self.derives:
                 return Export.PUBLIC
         if derive == "ToString":
@@ -156,21 +151,14 @@ class StructItem:
         if derive == "Getters":
             if not self.constant and "Getters" in self.obj.derives:
                 return Export.PUBLIC
-            if (
-                self.constant
-                and self.type != Type.STRING
-                and "Parse" in self.obj.derives
-            ):
-                return Export.PRIVATE
-            if (
-                self.constant
-                and self.type != Type.STRING
-                and "Validate" in self.obj.derives
-            ):
-                return Export.PRIVATE
+            if self.constant and self.type != Type.STRING:
+                if "Parse" in self.obj.derives:
+                    return Export.PRIVATE
+                if "Validate" in self.obj.derives:
+                    return Export.PRIVATE
             if not self.constant and self.obj.export("ToString") != Export.NONE:
                 return Export.PRIVATE
-        if derive == "Setters":
+        elif derive == "Setters":
             if not self.constant and "Setters" in self.obj.derives:
                 return Export.PUBLIC
             if self.default and "New" in self.obj.derives:
@@ -190,36 +178,30 @@ class StructItem:
             return multiplier * 3
         if self.type == Type.U32:
             return multiplier * 4
-        if self.type == Type.U64:
-            return multiplier * 8
-        return 0
+        return multiplier * 8 if self.type == Type.U64 else 0
 
     @property
     def enabled(self) -> bool:
         if self.element_id.startswith("_"):
             return False
-        if self.element_id == "reserved":
-            return False
-        return True
+        return self.element_id != "reserved"
 
     @property
     def endian_glib(self) -> str:
         if self.endian == Endian.LITTLE:
             return "G_LITTLE_ENDIAN"
-        if self.endian == Endian.BIG:
-            return "G_BIG_ENDIAN"
-        return "G_BYTE_ORDER"
+        return "G_BIG_ENDIAN" if self.endian == Endian.BIG else "G_BYTE_ORDER"
 
     def c_define(self, suffix: str):
-        return self.obj.c_define(suffix.upper() + "_" + self.element_id.upper())
+        return self.obj.c_define(f"{suffix.upper()}_{self.element_id.upper()}")
 
     @property
     def c_getter(self):
-        return self.obj.c_method("get_" + self.element_id)
+        return self.obj.c_method(f"get_{self.element_id}")
 
     @property
     def c_setter(self):
-        return self.obj.c_method("set_" + self.element_id)
+        return self.obj.c_method(f"set_{self.element_id}")
 
     @property
     def type_glib(self) -> str:
@@ -237,9 +219,7 @@ class StructItem:
             return "guint64"
         if self.type == Type.STRING:
             return "gchar"
-        if self.type == Type.GUID:
-            return "fwupd_guid_t"
-        return "void"
+        return "fwupd_guid_t" if self.type == Type.GUID else "void"
 
     @property
     def type_mem(self) -> str:
@@ -249,9 +229,7 @@ class StructItem:
             return "uint24"
         if self.type == Type.U32:
             return "uint32"
-        if self.type == Type.U64:
-            return "uint64"
-        return ""
+        return "uint64" if self.type == Type.U64 else ""
 
     def _parse_default(self, val: str) -> str:
 
@@ -264,10 +242,7 @@ class StructItem:
                 raise ValueError(f"0x prefix for hex number expected, got: {val}")
             if len(val) != (self.size * 2) + 2:
                 raise ValueError(f"data has to be {self.size} bytes exactly")
-            val_hex = ""
-            for idx in range(2, len(val), 2):
-                val_hex += f"\\x{val[idx:idx+2]}"
-            return val_hex
+            return "".join(f"\\x{val[idx:idx + 2]}" for idx in range(2, len(val), 2))
         if self.type in [
             Type.U8,
             Type.U16,
@@ -310,10 +285,10 @@ class StructItem:
         # find the type
         if typestr in enum_objs:
             self.enum_obj = enum_objs[typestr]
-            typestr_maybe: Optional[str] = enum_objs[typestr].repr_type
-            if not typestr_maybe:
+            if typestr_maybe := enum_objs[typestr].repr_type:
+                typestr = typestr_maybe
+            else:
                 raise ValueError(f"no repr for: {typestr}")
-            typestr = typestr_maybe
         try:
             if typestr.endswith("be"):
                 self.endian = Endian.BIG
@@ -420,10 +395,10 @@ class Generator:
             # what should we build
             if line.startswith("#[derive("):
                 for derive in line[9:-2].replace(" ", "").split(","):
-                    if derive == "Parse":
-                        derives.append("Getters")
                     if derive == "New":
                         derives.append("Setters")
+                    elif derive == "Parse":
+                        derives.append("Getters")
                     derives.append(derive)
                 continue
 
